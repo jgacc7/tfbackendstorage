@@ -18,11 +18,10 @@ data "azurerm_virtual_network" "vnet" {
   resource_group_name = var.vnet_resource_group_name
 }
 
-resource "azurerm_subnet" "test_pep_sub3" {
+data "azurerm_subnet" "test_pep_sub3" {
   name                 = var.snet_name
   resource_group_name  = var.vnet_resource_group_name
   virtual_network_name = var.vnet_name
-  address_prefixes     = ["10.1.2.0/24"]
 }
 
 resource "azurerm_resource_group" "rg" {
@@ -47,31 +46,24 @@ resource "azurerm_storage_account" "asa" {
   }
 }
 
-/* resource "azurerm_storage_container" "backend" {
+resource "azurerm_storage_container" "backend" {
   name                  = join("-", [var.project, "terraform", "states"])
   storage_account_name  = azurerm_storage_account.asa.name
   container_access_type = "private"
-} */
+  depends_on = [
+    azurerm_private_endpoint.pep
+  ]
+}
 
 data "azurerm_private_dns_zone" "dns01" {
   name                = "privatelink.blob.core.windows.net"
   resource_group_name = "rg_aiplatform_poc"
 }
 
-resource "azurerm_private_dns_zone_virtual_network_link" "network_link" {
-  name                  = join("-", [var.project, "terraform", "states"])
-  resource_group_name   = azurerm_resource_group.rg.name
-  private_dns_zone_name = data.azurerm_private_dns_zone.dns01.name
-  virtual_network_id    = data.azurerm_virtual_network.vnet.id
-  depends_on = [
-    data.azurerm_private_dns_zone.dns01
-  ]
-}
-
 resource "azurerm_private_dns_a_record" "arecord" {
   name                = join("-", [var.project, "terraform", "states"])
-  zone_name           = data.azurerm_private_dns_zone.dns01.name
-  resource_group_name = azurerm_resource_group.rg.name
+  zone_name           = "privatelink.blob.core.windows.net"
+  resource_group_name = "rg_aiplatform_poc"
   ttl                 = 10
   records             = [azurerm_private_endpoint.pep.private_service_connection.0.private_ip_address]
 }
@@ -80,7 +72,7 @@ resource "azurerm_private_endpoint" "pep" {
   name                = join("-", [var.project, "terraform", "states"])
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
-  subnet_id           = azurerm_subnet.test_pep_sub3.id
+  subnet_id           = data.azurerm_subnet.test_pep_sub3.id
   private_service_connection {
     name                           = join("-", [var.project, "terraform", "states"])
     private_connection_resource_id = azurerm_storage_account.asa.id
@@ -90,5 +82,8 @@ resource "azurerm_private_endpoint" "pep" {
   private_dns_zone_group {
     name                 = data.azurerm_private_dns_zone.dns01.name
     private_dns_zone_ids = [data.azurerm_private_dns_zone.dns01.id]
+  }
+  tags = {
+    akosid = "iot_sbx"
   }
 }
